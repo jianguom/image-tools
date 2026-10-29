@@ -1,0 +1,46 @@
+# 定时把上游 haihaipypy/image-tools 的更新合并进本 fork 的 master。
+# 合并后的推送会经由 GitHub Webhook 触发 Cloudflare Pages 重新构建并发布，
+# 因此「上游更新 -> 自动构建」整条链路无需额外配置。
+name: Sync upstream
+
+on:
+  schedule:
+    # 每 6 小时检查一次上游
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Merge upstream/master
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/haihaipypy/image-tools.git || true
+          git fetch upstream master
+          before=$(git rev-parse HEAD)
+          if ! git merge --no-edit upstream/master; then
+            echo "::warning::上游更新与本 fork 存在冲突，本次跳过自动合并，需要手动处理"
+            git merge --abort
+            exit 0
+          fi
+          after=$(git rev-parse HEAD)
+          if [ "$after" = "$before" ]; then
+            echo "已是最新，无需推送"
+          else
+            git push origin master
+          fi
